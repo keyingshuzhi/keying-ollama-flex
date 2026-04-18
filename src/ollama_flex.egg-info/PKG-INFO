@@ -1,0 +1,210 @@
+Metadata-Version: 2.4
+Name: keying-ollama-flex
+Version: 0.3.0
+Summary: Developer-friendly Ollama toolkit with robust tool loops, structured output retries, and reusable script recipes
+Author: 柯影数智团队
+Author-email: 1090461393@qq.com
+Keywords: ollama,llm,ai,tool-calling,python
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3 :: Only
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Operating System :: OS Independent
+Requires-Python: >=3.10
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: ollama>=0.4.0
+Requires-Dist: pydantic>=2.5.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0.0; extra == "dev"
+Requires-Dist: ruff>=0.6.0; extra == "dev"
+Dynamic: license-file
+
+# keying-ollama-flex
+
+基于官方 `ollama-python` 的能力做了一层开发者友好的工程封装。
+开发者：柯影数智团队
+联系方式：1090461393@qq.com
+
+目标不是替代官方 SDK，而是让你在真实项目里更快落地：
+
+- 少写样板代码
+- 统一同步/异步接口
+- 更稳的工具调用循环
+- 更稳的结构化输出
+- 更好的会话管理与复用
+
+## 相比官方 SDK 的增强点
+
+| 维度 | 官方 `ollama-python` | `ollama_flex` |
+|---|---|---|
+| 工具调用 | 需要手写循环处理 `tool_calls` | `chat_with_tools/achat_with_tools` 自动循环直到产出最终答案 |
+| 工具结果消息 | 需要自己拼 `{'role':'tool','tool_name':...}` | `tool_message()` 自动生成，兼容 `tool_name` + `name` |
+| 参数清洗 | 需要自己处理参数类型（如字符串数字） | `ToolRegistry` 内置参数类型自动矫正 |
+| 结构化输出 | 失败时需手工重试 | `chat_structured(..., retries=...)` 自动反馈并重试 |
+| 流式处理 | 按 chunk 自行解析 | `stream_chat_events/stream_generate_events` 统一事件模型 |
+| 会话管理 | 手动维护 `messages` | `ChatSession` 内置历史、流式、工具调用、窗口裁剪 |
+| 模型管理 | 调官方原生函数 | 统一在 `OllamaToolkit`（list/pull/push/create/show/copy/delete/web） |
+
+## 安装
+
+```bash
+# 开发模式
+pip install -e .
+
+# 含开发工具
+pip install -e .[dev]
+```
+
+如果当前环境不方便做打包安装，也可以先使用：
+
+```bash
+export PYTHONPATH="$(pwd)/src"
+```
+
+可选环境变量：
+
+- `OLLAMA_HOST`
+- `OLLAMA_DEFAULT_MODEL`
+- `OLLAMA_KEEP_ALIVE`
+
+## 架构分层
+
+- Public API：`src/ollama_flex/__init__.py`
+- Facade 编排层：`src/ollama_flex/client.py`
+- 会话层：`src/ollama_flex/session.py`
+- 工具层：`src/ollama_flex/tools.py`
+- 脚本级工作流层：`src/ollama_flex/recipes.py`
+- 内部实现层：`src/ollama_flex/_internal/`（消息构建、解析、流式聚合、历史裁剪）
+
+详细说明见：`docs/ARCHITECTURE.md`
+
+## 快速开始
+
+### 1) 基础聊天 + 流式事件
+
+```python
+from ollama_flex import OllamaToolkit
+
+kit = OllamaToolkit(default_model="deepseek-r1:7b")
+print(kit.chat_text(prompt="请用一句话介绍你自己"))
+
+for event in kit.stream_chat_events(prompt="请列出本地部署大模型的三个优势"):
+    if event.content:
+        print(event.content, end="", flush=True)
+```
+
+### 2) 自动工具调用循环
+
+```python
+from ollama_flex import OllamaToolkit, ToolRegistry
+
+kit = OllamaToolkit(default_model="llama3.2")
+registry = ToolRegistry()
+
+@registry.register
+def add(a: int, b: int) -> int:
+    return a + b
+
+result = kit.chat_with_tools(
+    registry=registry,
+    prompt="What is 30 + 12?",
+)
+
+print(result.final_content)
+print(result.tool_calls)
+```
+
+### 3) 结构化输出（自动纠错重试）
+
+```python
+from pydantic import BaseModel
+from ollama_flex import OllamaToolkit
+
+class User(BaseModel):
+    name: str
+    age: int
+
+kit = OllamaToolkit(default_model="deepseek-r1:7b")
+user = kit.chat_structured(
+    User,
+    prompt="返回一个用户 JSON",
+    retries=2,
+)
+print(user)
+```
+
+### 4) 会话模式
+
+```python
+from ollama_flex import ChatSession, OllamaToolkit
+
+session = ChatSession(
+    OllamaToolkit(default_model="deepseek-r1:7b"),
+    system_prompt="你是一个简洁助手",
+    max_messages=12,
+)
+
+print(session.ask_text("什么是大模型？"))
+print(session.ask_text("把上一句更口语化"))
+```
+
+### 5) studying 脚本能力封装（recipes）
+
+```python
+from ollama_flex import OllamaToolkit, OllamaRecipes
+
+kit = OllamaToolkit(default_model="llama3.2")
+recipes = OllamaRecipes(kit)
+
+# 1) 拉模型并显示进度（digest 级）
+report = recipes.pull_model_with_progress("llama3.2")
+print(report.statuses)
+
+# 2) 查看本地模型/运行模型（格式化输出）
+print(recipes.list_models_text())
+print(recipes.running_models_text())
+```
+
+## 官方 API 对照迁移
+
+| 官方用法 | Flex 用法 |
+|---|---|
+| `chat(...)` | `kit.chat(...)` / `kit.chat_text(...)` |
+| `AsyncClient().chat(...)` | `await kit.achat(...)` / `await kit.achat_text(...)` |
+| 手写 tool loop | `kit.chat_with_tools(...)` |
+| `format=schema` + 手写校验 | `kit.chat_structured(Schema, ...)` |
+| chunk 逐段解析 | `kit.stream_chat_events(...)` |
+| `pull/list/ps/...` 分散调用 | `kit.pull_model/list_models/running_models/...` |
+
+## 示例目录
+
+- `examples/basic_chat.py`
+- `examples/tools_call.py`
+- `examples/structured_output.py`
+- `examples/session_chat.py`
+- `examples/thinking_logprobs.py`
+- `examples/recipes_showcase.py`
+
+## 目录结构
+
+```text
+.
+├── src/ollama_flex/
+│   ├── __init__.py
+│   ├── _internal/
+│   ├── client.py
+│   ├── config.py
+│   ├── errors.py
+│   ├── recipes.py
+│   ├── session.py
+│   ├── tools.py
+│   └── types.py
+├── docs/
+├── examples/
+├── tests/
+└── studying/
+```
+
+## 说明
+
+`studying/` 下原有脚本仍保留，作为官方 API 学习样例；实际项目建议优先用 `src/ollama_flex`。
