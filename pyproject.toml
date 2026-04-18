@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keying-ollama-flex"
+version = "0.3.0"
+description = "Developer-friendly Ollama toolkit with robust tool loops, structured output retries, and reusable script recipes"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+  {name = "柯影数智团队", email = "1090461393@qq.com"}
+]
+dependencies = [
+  "ollama>=0.4.0",
+  "pydantic>=2.5.0"
+]
+keywords = ["ollama", "llm", "ai", "tool-calling", "python"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0.0",
+  "ruff>=0.6.0"
+]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
